@@ -20,7 +20,7 @@ Binance WebSocket → Kafka → Spark Streaming → HDFS (Parquet)
 
 ```bash
 # 1. Clonar el repositorio
-git clone <tu-repo>
+git clone https://github.com/VicenteGasco/Crypto.git
 cd crypto-exchange
 
 # 2. Levantar toda la infraestructura
