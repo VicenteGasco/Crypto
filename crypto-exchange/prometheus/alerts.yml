@@ -1,0 +1,68 @@
+groups:
+  - name: crypto_pipeline_alertas
+    rules:
+
+      # ── Alerta 1: Lag del consumer Kafka elevado ────────────
+      # Justificación: si Spark no procesa mensajes a la velocidad que
+      # el productor los genera, el lag crece. >1000 mensajes durante 2min
+      # indica que Spark está saturado o caído.
+      - alert: KafkaConsumerLagAlto
+        expr: kafka_consumergroup_lag_sum > 1000
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Lag de Kafka supera 1000 mensajes"
+          description: "El consumer group tiene {{ $value }} mensajes sin procesar durante >2 minutos."
+
+      # ── Alerta 2: Pump or Dump detectado ───────────────────
+      # Si el contador de alertas pump/dump crece, es que Spark detectó
+      # una variación brusca de precio en el último batch.
+      - alert: PumpDumpDetectado
+        expr: increase(spark_pump_dump_alertas_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pump o Dump detectado en {{ $labels.par }}"
+          description: "Variación de precio > 3% en el par {{ $labels.par }} ({{ $labels.tipo }})."
+
+      # ── Alerta 3: Productor sin enviar mensajes ─────────────
+      # Si el contador de mensajes no aumenta en 2 minutos, el WebSocket
+      # está caído o hay un problema de red con Binance.
+      - alert: ProductorSilencioso
+        expr: increase(producer_mensajes_total[2m]) == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "El productor no envía mensajes a Kafka"
+          description: "No se han enviado mensajes en los últimos 2 minutos. Posible caída del WebSocket."
+
+      # ── Alerta 4: Contenedor con alta CPU ──────────────────
+      # Un contenedor consumiendo >80% de CPU durante 5 minutos
+      # puede indicar un loop infinito o saturación del worker de Spark.
+      - alert: ContenedorCPUAlta
+        expr: >
+          rate(container_cpu_usage_seconds_total{
+            container_label_com_docker_compose_project="crypto-exchange"
+          }[1m]) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU alta en contenedor {{ $labels.name }}"
+          description: "El contenedor {{ $labels.name }} lleva >5min con CPU >80%."
+
+      # ── Alerta 5: Memoria de contenedor casi agotada ────────
+      - alert: ContenedorMemoriaAlta
+        expr: >
+          container_memory_usage_bytes{
+            container_label_com_docker_compose_project="crypto-exchange"
+          } / container_spec_memory_limit_bytes > 0.9
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Memoria alta en contenedor {{ $labels.name }}"
+          description: "El contenedor {{ $labels.name }} supera el 90% de su límite de memoria."

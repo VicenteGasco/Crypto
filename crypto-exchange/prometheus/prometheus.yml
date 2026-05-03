@@ -1,0 +1,49 @@
+global:
+  scrape_interval:     15s   # cada cuánto recoge métricas
+  evaluation_interval: 15s   # cada cuánto evalúa alertas
+  scrape_timeout:      10s
+
+alerting:
+  alertmanagers: []          # sin alertmanager externo (alertas solo en Prometheus)
+
+rule_files:
+  - "alerts.yml"
+
+scrape_configs:
+
+  # ── Prometheus se monitoriza a sí mismo ───────────────────
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # ── Node Exporter: métricas del host (CPU, RAM, disco) ────
+  - job_name: "node-exporter"
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  # ── cAdvisor: métricas de los contenedores Docker ─────────
+  - job_name: "cadvisor"
+    static_configs:
+      - targets: ["cadvisor:8080"]
+    metric_relabel_configs:
+      # Solo nos interesan los contenedores del proyecto
+      - source_labels: [container_label_com_docker_compose_project]
+        regex: "crypto-exchange"
+        action: keep
+
+  # ── Productor Python (métricas de negocio) ─────────────────
+  - job_name: "crypto-producer"
+    static_configs:
+      - targets: ["producer:8000"]
+    scrape_interval: 5s    # más frecuente para capturar picos de precio
+
+  # ── Spark Streaming job (métricas de negocio) ───────────────
+  - job_name: "spark-streaming"
+    static_configs:
+      - targets: ["spark-streaming:8001"]
+    scrape_interval: 10s
+
+  # ── Kafka JMX (lag, throughput) ────────────────────────────
+  - job_name: "kafka"
+    static_configs:
+      - targets: ["kafka:9101"]

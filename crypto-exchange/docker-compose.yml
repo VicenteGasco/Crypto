@@ -1,0 +1,305 @@
+# ============================================================
+#  CryptoExchange Pipeline — docker compose up --build
+# ============================================================
+
+networks:
+  crypto-net:
+    driver: bridge
+
+volumes:
+  hdfs-namenode:
+  hdfs-datanode:
+  prometheus-data:
+  grafana-data:
+
+# ---------- HELPERS ------------------------------------------
+x-spark-common: &spark-common
+  image: apache/spark:3.5.0
+  networks: [crypto-net]
+  environment:
+    - SPARK_MODE=worker
+    - SPARK_MASTER_URL=spark://spark-master:7077
+    - SPARK_WORKER_MEMORY=1G
+    - SPARK_WORKER_CORES=1
+
+services:
+
+  # ============================================================
+  # 1. ZOOKEEPER
+  # ============================================================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: zookeeper
+    networks: [crypto-net]
+    environment:
+      - ZOOKEEPER_CLIENT_PORT=2181
+      - ZOOKEEPER_TICK_TIME=2000
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # 2. KAFKA BROKER
+  # ============================================================
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka
+    networks: [crypto-net]
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "9101:9101"
+    environment:
+      - KAFKA_BROKER_ID=1
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+      - KAFKA_LOG_RETENTION_HOURS=24
+      - KAFKA_LOG_RETENTION_BYTES=1073741824
+      - KAFKA_JMX_PORT=9101
+      - KAFKA_JMX_HOSTNAME=kafka
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # ============================================================
+  # 3. KAFKA UI
+  # ============================================================
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    networks: [crypto-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8090:8080"
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=local
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:29092
+
+  # ============================================================
+  # 4. HDFS — NameNode
+  # ============================================================
+  hdfs-namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: hdfs-namenode
+    networks: [crypto-net]
+    ports:
+      - "9870:9870"
+      - "9000:9000"
+    volumes:
+      - hdfs-namenode:/hadoop/dfs/name
+    environment:
+      - CLUSTER_NAME=crypto-cluster
+      - HDFS_CONF_dfs_replication=1
+      - HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check=false
+    env_file:
+      - ./hadoop.env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9870"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ============================================================
+  # 5. HDFS — DataNode
+  # ============================================================
+  hdfs-datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: hdfs-datanode
+    networks: [crypto-net]
+    depends_on:
+      hdfs-namenode:
+        condition: service_healthy
+    volumes:
+      - hdfs-datanode:/hadoop/dfs/data
+    environment:
+      - SERVICE_PRECONDITION=hdfs-namenode:9870
+      - HDFS_CONF_dfs_replication=1
+    env_file:
+      - ./hadoop.env
+
+  # ============================================================
+  # 6. HIVE
+  # ============================================================
+  hive-metastore:
+    image: bde2020/hive:2.3.2-postgresql-metastore
+    container_name: hive-metastore
+    networks: [crypto-net]
+    depends_on:
+      hdfs-namenode:
+        condition: service_healthy
+    env_file:
+      - ./hadoop.env
+    environment:
+      - SERVICE_PRECONDITION=hdfs-namenode:9870 hdfs-datanode:9864
+    command: /opt/hive/bin/hive --service metastore
+    ports:
+      - "9083:9083"
+
+  hive-server:
+    image: bde2020/hive:2.3.2-postgresql-metastore
+    container_name: hive-server
+    networks: [crypto-net]
+    depends_on:
+      - hive-metastore
+    env_file:
+      - ./hadoop.env
+    environment:
+      - SERVICE_PRECONDITION=hive-metastore:9083
+      - HIVE_CORE_CONF_javax_jdo_option_ConnectionURL=jdbc:postgresql://hive-metastore/metastore
+    ports:
+      - "10000:10000"
+      - "10002:10002"
+
+  # ============================================================
+  # 7. SPARK — Master (Usando Imagen Oficial)
+  # ============================================================
+  spark-master:
+    image: apache/spark:3.5.0
+    container_name: spark-master
+    networks: [crypto-net]
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+    volumes:
+      - ./spark:/opt/spark-apps
+
+  # ============================================================
+  # 8. SPARK — Worker
+  # ============================================================
+  spark-worker:
+    <<: *spark-common
+    container_name: spark-worker
+    depends_on:
+      - spark-master
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./spark:/opt/spark-apps
+
+  # ============================================================
+  # 9. PRODUCTOR PYTHON
+  # ============================================================
+  producer:
+    build:
+      context: ./producer
+      dockerfile: Dockerfile
+    container_name: crypto-producer
+    networks: [crypto-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      - KAFKA_BOOTSTRAP=kafka:29092
+      - PAIRS=BTCUSDT,ETHUSDT
+      - PROMETHEUS_PORT=8000
+    ports:
+      - "8000:8000"
+    restart: on-failure
+
+  # ============================================================
+  # 10. SPARK STREAMING JOB
+  # ============================================================
+  spark-streaming:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    container_name: spark-streaming
+    networks: [crypto-net]
+    depends_on:
+      - spark-master
+      - kafka
+      - hdfs-namenode
+    environment:
+      - KAFKA_BOOTSTRAP=kafka:29092
+      - HDFS_NAMENODE=hdfs://hdfs-namenode:9000
+      - PROMETHEUS_PORT=8001
+    ports:
+      - "8001:8001"
+    restart: on-failure
+
+  # ============================================================
+  # 11. PROMETHEUS
+  # ============================================================
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: prometheus
+    networks: [crypto-net]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+
+  # ============================================================
+  # 12. NODE EXPORTER
+  # ============================================================
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: node-exporter
+    networks: [crypto-net]
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)"
+
+  # ============================================================
+  # 13. cADVISOR
+  # ============================================================
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: cadvisor
+    networks: [crypto-net]
+    ports:
+      - "8082:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    privileged: true
+
+  # ============================================================
+  # 14. GRAFANA
+  # ============================================================
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: grafana
+    networks: [crypto-net]
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=crypto123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards

@@ -1,0 +1,192 @@
+{
+  "title": "Market Monitor — Crypto Trading",
+  "uid": "crypto-negocio",
+  "tags": ["crypto", "trading", "metrics"],
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": { "from": "now-30m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Precio actual BTC/USDT",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 3 },
+      "targets": [{
+        "expr": "crypto_precio_actual{par=\"BTCUSDT\"}",
+        "legendFormat": "BTC/USDT"
+      }],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "unit": "currencyUSD"
+      }
+    },
+    {
+      "id": 2,
+      "title": "Precio actual ETH/USDT",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 3 },
+      "targets": [{
+        "expr": "crypto_precio_actual{par=\"ETHUSDT\"}",
+        "legendFormat": "ETH/USDT"
+      }],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "unit": "currencyUSD"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Tendencia Histórica (últimos 30 min)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 3, "w": 24, "h": 9 },
+      "targets": [
+        {
+          "expr": "crypto_precio_actual{par=\"BTCUSDT\"}",
+          "legendFormat": "BTC/USDT"
+        },
+        {
+          "expr": "crypto_precio_actual{par=\"ETHUSDT\"}",
+          "legendFormat": "ETH/USDT"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { 
+          "unit": "currencyUSD",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "lineWidth": 2
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Indicador RSI (14 periodos)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "spark_rsi{par=\"BTCUSDT\"}",
+          "legendFormat": "RSI BTC"
+        },
+        {
+          "expr": "spark_rsi{par=\"ETHUSDT\"}",
+          "legendFormat": "RSI ETH"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "lineWidth": 2
+          },
+          "thresholds": {
+            "steps": [
+              { "color": "blue",  "value": 0  },
+              { "color": "yellow", "value": 30 },
+              { "color": "red",   "value": 70 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Media Móvil Simple (SMA 5m)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "spark_sma20{par=\"BTCUSDT\"}",
+          "legendFormat": "SMA BTC"
+        },
+        {
+          "expr": "spark_sma20{par=\"ETHUSDT\"}",
+          "legendFormat": "SMA ETH"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineStyle": { "fill": "dash" },
+            "lineWidth": 2
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Alertas Pump/Dump",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 20, "w": 8, "h": 7 },
+      "targets": [{
+        "expr": "increase(spark_pump_dump_alertas_total[1m])",
+        "legendFormat": "{{par}} - {{tipo}}"
+      }],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 8,
+      "title": "Volumen 24h",
+      "type": "gauge",
+      "gridPos": { "x": 8, "y": 20, "w": 8, "h": 7 },
+      "targets": [{
+        "expr": "crypto_volumen_24h",
+        "legendFormat": "{{par}}"
+      }]
+    },
+    {
+      "id": 7,
+      "title": "Rendimiento Kafka (Mensajes/s)",
+      "type": "timeseries",
+      "gridPos": { "x": 16, "y": 20, "w": 8, "h": 7 },
+      "targets": [
+        {
+          "expr": "rate(producer_mensajes_total[1m])",
+          "legendFormat": "{{topic}} — {{par}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { 
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80
+          }
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Latencia P95 (Kafka)",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 27, "w": 24, "h": 4 },
+      "targets": [{
+        "expr": "histogram_quantile(0.95, rate(producer_kafka_latency_seconds_bucket[5m]))",
+        "legendFormat": "p95 {{topic}}"
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "s" }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      }
+    }
+  ]
+}
